@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-02
+
+### Added
+
+- Live tooltip on the curve graph: hovering or dragging a point shows its
+  temperature and fan speed, updating in real time as the point moves.
+
 ## [1.1.1] - 2026-09-02
 
 ### Fixed
@@ -75,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the old speed instead of re-evaluating fresh against the newly active
   curve.
 
-[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.0...v1.0.1
