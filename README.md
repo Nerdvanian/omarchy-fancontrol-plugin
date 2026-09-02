@@ -49,6 +49,37 @@ Then apply the daemon patches (see [`daemon-patches/README.md`](daemon-patches/R
 sudo systemctl restart omarchy-fancontrol.service
 ```
 
+## Uninstall
+
+To remove just the plugin (bar pill + panel), leaving the daemon and your
+curves running exactly as they are — you'll lose the graphical editor, but
+`omarchy-fancontrol` keeps applying whatever's in `config.yaml`, and you
+can still edit it by hand or with `~/.local/share/omarchy-fancontrol/fancontrol-watch`:
+
+```bash
+omarchy plugin remove nerdvanian.fancontrol
+```
+
+To undo everything, including fan control itself — this hands every pwm
+header back to firmware/BIOS auto control:
+
+```bash
+omarchy plugin remove nerdvanian.fancontrol
+sudo systemctl disable --now omarchy-fancontrol.service
+rm -rf ~/.config/omarchy-fancontrol
+```
+
+Stopping the service restores each pwm's original `pwm_enable` value
+automatically (that's built into the daemon, not something this cleanup
+does) — the fans return to normal firmware control the moment it stops.
+
+Note there's no known way to revert `~/.local/share/omarchy-fancontrol/`
+(`fancontrold.py`, `fancontrol_detect.py`) to a "stock" version on its
+own — nothing on a stock Omarchy install owns those files as a package, so
+there's nothing to reinstall over them. If you disable the service as
+above they're simply inert; delete
+`~/.local/share/omarchy-fancontrol/` too if you want them gone entirely.
+
 ## Files
 
 | Path | What it is |
