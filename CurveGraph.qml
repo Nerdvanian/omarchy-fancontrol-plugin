@@ -10,7 +10,14 @@ import qs.Commons
 Item {
   id: root
 
-  property var points: []          // [[tempC, percent], ...] ascending -- the interactive curve
+  property var points: []          // [[tempC, percent], ...] ascending -- externally bound (e.g. to
+                                    // editPoints/editGpuPoints); read-only from in here. Never assign
+                                    // to this directly -- an imperative write would permanently sever
+                                    // whatever declarative binding the caller put on it, which is
+                                    // exactly the bug that used to make the CPU/GPU tabs freeze on
+                                    // whichever curve was dragged first. Interaction goes through
+                                    // dragPoints below instead.
+  property var dragPoints: points  // live editable copy driving hit-testing, rendering and dragging
   property var ghostPoints: null   // optional second curve (e.g. the other of cpu/gpu), dimmed, not interactive
   property real liveTemp: NaN
   property string liveTempLabel: "" // e.g. "CPU" / "GPU", prefixed onto the marker text
@@ -29,6 +36,12 @@ Item {
   readonly property real hitRadius: 14
 
   signal pointsEdited(var newPoints)  // committed (drag released / add / remove)
+
+  // Re-sync the editable copy whenever the externally-bound curve changes --
+  // e.g. the panel switched the CPU/GPU tab, or a save round-tripped new
+  // points back in. This is the only path that should ever move data from
+  // points into dragPoints once dragging has started.
+  onPointsChanged: root.dragPoints = points.map(function(p) { return [p[0], p[1]] })
 
   implicitWidth: Style.space(420)
   implicitHeight: Style.space(220)
@@ -51,9 +64,9 @@ Item {
   function hitTest(px, py) {
     var best = -1
     var bestDist = hitRadius
-    for (var i = 0; i < points.length; i++) {
-      var dx = plotX(points[i][0]) - px
-      var dy = plotY(points[i][1]) - py
+    for (var i = 0; i < dragPoints.length; i++) {
+      var dx = plotX(dragPoints[i][0]) - px
+      var dy = plotY(dragPoints[i][1]) - py
       var d = Math.sqrt(dx * dx + dy * dy)
       if (d <= bestDist) { bestDist = d; best = i }
     }
@@ -80,7 +93,7 @@ Item {
 
     Connections {
       target: root
-      function onPointsChanged() { canvas.requestPaint() }
+      function onDragPointsChanged() { canvas.requestPaint() }
       function onGhostPointsChanged() { canvas.requestPaint() }
       function onLiveTempChanged() { canvas.requestPaint() }
       function onLiveAppliedChanged() { canvas.requestPaint() }
@@ -132,14 +145,14 @@ Item {
         ctx.setLineDash([])
       }
 
-      if (root.points.length > 0) {
+      if (root.dragPoints.length > 0) {
         // Dim the curve while a manual override is pinning the actual
         // speed, so it reads as "not currently in charge" rather than
         // implying the fan is following it.
         ctx.strokeStyle = manualActive ? Qt.rgba(root.lineColor.r, root.lineColor.g, root.lineColor.b, 0.35) : root.lineColor
         ctx.lineWidth = 2
         ctx.beginPath()
-        root.traceCurvePath(ctx, root.points)
+        root.traceCurvePath(ctx, root.dragPoints)
         ctx.stroke()
       }
 
@@ -173,7 +186,7 @@ Item {
   }
 
   Repeater {
-    model: root.points.length
+    model: root.dragPoints.length
     delegate: Rectangle {
       required property int index
       width: Style.space(10)
@@ -182,8 +195,8 @@ Item {
       color: root.dragIndex === index ? root.markerColor : root.lineColor
       border.color: Color.background
       border.width: 1
-      x: root.plotX(root.points[index][0]) - width / 2
-      y: root.plotY(root.points[index][1]) - height / 2
+      x: root.plotX(root.dragPoints[index][0]) - width / 2
+      y: root.plotY(root.dragPoints[index][1]) - height / 2
       z: 2
     }
   }
@@ -202,33 +215,33 @@ Item {
       if (root.dragIndex < 0) return
       var t = root.clampTemp(root.unplotX(mouse.x))
       var p = root.clampPercent(root.unplotY(mouse.y))
-      var pts = root.points.map(function(pt) { return [pt[0], pt[1]] })
+      var pts = root.dragPoints.map(function(pt) { return [pt[0], pt[1]] })
       pts[root.dragIndex] = [t, p]
-      root.points = pts
+      root.dragPoints = pts
     }
 
     onReleased: function(mouse) {
       if (root.dragIndex < 0) return
       root.dragIndex = -1
-      root.pointsEdited(root.points)
+      root.pointsEdited(root.dragPoints)
     }
 
     onDoubleClicked: function(mouse) {
       var hit = root.hitTest(mouse.x, mouse.y)
       if (hit >= 0) {
-        if (root.points.length <= 2) return
-        var pts = root.points.slice()
+        if (root.dragPoints.length <= 2) return
+        var pts = root.dragPoints.slice()
         pts.splice(hit, 1)
-        root.points = pts
-        root.pointsEdited(root.points)
+        root.dragPoints = pts
+        root.pointsEdited(root.dragPoints)
       } else {
         var t = Math.round(root.clampTemp(root.unplotX(mouse.x)))
         var p = Math.round(root.clampPercent(root.unplotY(mouse.y)))
-        var pts2 = root.points.map(function(pt) { return [pt[0], pt[1]] })
+        var pts2 = root.dragPoints.map(function(pt) { return [pt[0], pt[1]] })
         pts2.push([t, p])
         pts2.sort(function(a, b) { return a[0] - b[0] })
-        root.points = pts2
-        root.pointsEdited(root.points)
+        root.dragPoints = pts2
+        root.pointsEdited(root.dragPoints)
       }
     }
   }
