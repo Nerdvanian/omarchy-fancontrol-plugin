@@ -58,7 +58,7 @@ officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainer at harris.matt97@pm.me. All complaints will be
+reported to the maintainer at github.com.buffalo306@passmail.net. All complaints will be
 reviewed and investigated promptly and fairly.
 
 All maintainers are obligated to respect the privacy and security of the
