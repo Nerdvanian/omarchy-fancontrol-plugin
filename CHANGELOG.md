@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-02
+
+### Fixed
+
+- Panel now opens anchored under the bar icon instead of centered across
+  the whole screen.
+
+### Added
+
+- `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and GitHub issue
+  templates.
+- Uninstall instructions in the README.
+
 ## [1.0.0] - 2026-09-02
 
 ### Added
@@ -43,5 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the old speed instead of re-evaluating fresh against the newly active
   curve.
 
-[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/releases/tag/v1.0.0

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nerdvanian.fancontrol",
   "name": "Fan Control",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "nerdvanian",
   "description": "CPU/GPU temp bar pill with a graphical fan-curve editor: drag curves, manual override, rename/remove fans, and a second GPU-driven curve per fan",
   "kinds": [
