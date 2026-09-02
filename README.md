@@ -1,10 +1,9 @@
 # Fan Control (Omarchy plugin)
 
 A graphical fan-curve editor for [Omarchy](https://omarchy.org)'s
-`omarchy-fancontrol` daemon. Replaces the default text-only bar pill with a
-proper Windows-FanControl-style graph: drag points to reshape a curve,
-manual speed override, per-fan renaming, and a second curve per fan that
-switches in automatically whenever the GPU is hotter than the CPU.
+`omarchy-fancontrol` daemon. Windows-FanControl-style graph: drag points to reshape a curve,
+manual speed override, per-fan renaming, and add a second curve per fan that
+switches in automatically depending on whether the CPU or GPU is a higher temp.
 
 ![Fan Control panel](preview.png)
 
