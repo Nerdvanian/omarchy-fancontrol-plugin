@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "nerdvanian.fancontrol",
+  "name": "Fan Control",
+  "version": "1.0.0",
+  "author": "nerdvanian",
+  "description": "CPU/GPU temp bar pill with a graphical fan-curve editor: drag curves, manual override, rename/remove fans, and a second GPU-driven curve per fan",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Fan Control",
+    "description": "CPU/GPU temp pill; click to edit fan curves as draggable graphs, with manual override and GPU-driven curves",
+    "category": "Hardware",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}

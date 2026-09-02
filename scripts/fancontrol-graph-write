@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Writes an edited curve (points and/or hysteresis) back into
+omarchy-fancontrol's config.yaml. Called by the fan-control graph editor
+panel after a drag, add, or delete. The daemon hot-reloads the file on
+save, so no restart/signal is needed.
+
+Usage: fancontrol-graph-write <curve_name> <json_payload>
+  json_payload: {"points": [[temp_c, percent], ...], "hysteresis_c": N,
+                 "manual_percent": N | null, "label": "display name",
+                 "gpu": {"points": [...], "hysteresis_c": N} | null,
+                 "remove": true}
+  manual_percent set to a number pins the fan at that speed (the daemon
+  skips the curve entirely); null/omitted leaves curve control as-is.
+  label is purely cosmetic (shown in the panel instead of the raw
+  "<chip>_pwmN" name); an empty string clears it back to the default.
+  gpu adds/replaces a second curve driven by GPU temp -- the daemon
+  switches every curve that has one over to it while the GPU is hotter
+  than the CPU, and back to the normal points/hysteresis_c above once the
+  CPU is hotter again; gpu: null removes it, reverting to CPU-only.
+  remove: true deletes the curve entirely (e.g. a header nothing is
+  plugged into) -- the daemon then leaves that pwm under firmware/BIOS
+  auto control, same as it was before detection ever touched it. Ignores
+  every other key in the payload when present.
+"""
+
+import json
+import sys
+
+CONFIG_PATH = None  # set in main() after expanduser
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def normalize_points(raw_points):
+    points = []
+    for p in raw_points:
+        temp_c = clamp(float(p[0]), 0, 100)
+        percent = clamp(float(p[1]), 0, 100)
+        points.append([round(temp_c, 1), round(percent, 1)])
+    points.sort(key=lambda p: p[0])
+    if len(points) < 2:
+        raise ValueError("a curve needs at least 2 points")
+    return points
+
+
+def main():
+    import os
+    global CONFIG_PATH
+    CONFIG_PATH = os.path.expanduser("~/.config/omarchy-fancontrol/config.yaml")
+
+    if len(sys.argv) != 3:
+        print("usage: fancontrol-graph-write <curve_name> <json_payload>", file=sys.stderr)
+        sys.exit(2)
+
+    curve_name = sys.argv[1]
+    payload = json.loads(sys.argv[2])
+
+    import yaml
+
+    with open(CONFIG_PATH) as f:
+        doc = yaml.safe_load(f) or {}
+
+    curves = doc.get("curves") or []
+    target = next((c for c in curves if c.get("name") == curve_name), None)
+    if target is None:
+        print(f"no curve named {curve_name!r} in {CONFIG_PATH}", file=sys.stderr)
+        sys.exit(1)
+
+    if payload.get("remove"):
+        curves.remove(target)
+    else:
+        if "points" in payload:
+            target["points"] = normalize_points(payload["points"])
+        if "hysteresis_c" in payload:
+            target["hysteresis_c"] = clamp(float(payload["hysteresis_c"]), 0, 30)
+        if "manual_percent" in payload:
+            manual_percent = payload["manual_percent"]
+            target["manual_percent"] = None if manual_percent is None else clamp(float(manual_percent), 0, 100)
+        if "label" in payload:
+            target["label"] = str(payload["label"] or "")[:60]
+        if "gpu" in payload:
+            gpu = payload["gpu"]
+            if gpu is None:
+                target.pop("gpu", None)
+            else:
+                target["gpu"] = {
+                    "points": normalize_points(gpu["points"]),
+                    "hysteresis_c": clamp(float(gpu.get("hysteresis_c", 3)), 0, 30),
+                }
+
+    with open(CONFIG_PATH, "w") as f:
+        f.write(
+            "# Omarchy Fan Control curves.\n"
+            "# Edited via the fan-control graph panel -- the daemon hot-reloads\n"
+            "# this file on save.\n"
+        )
+        yaml.safe_dump(doc, f, default_flow_style=False, sort_keys=False)
+
+
+if __name__ == "__main__":
+    main()

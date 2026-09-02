@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Prints one JSON blob combining omarchy-fancontrol's configured curves
+(points, hysteresis) with the daemon's live status (temp/percent/rpm), for
+the fan-control graph editor panel."""
+
+import json
+import os
+
+CONFIG_PATH = os.path.expanduser("~/.config/omarchy-fancontrol/config.yaml")
+STATUS_PATH = "/run/omarchy-fancontrol/status.json"
+
+
+def load_config():
+    import yaml
+
+    try:
+        with open(CONFIG_PATH) as f:
+            doc = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    return doc.get("curves") or []
+
+
+def load_status():
+    try:
+        with open(STATUS_PATH) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}, {}
+    by_name = {c["name"]: c for c in data.get("curves", [])}
+    return by_name, data
+
+
+def main():
+    config_curves = load_config()
+    status_by_name, status = load_status()
+
+    curves = []
+    for c in config_curves:
+        name = c.get("name", "")
+        live = status_by_name.get(name, {})
+        gpu = c.get("gpu")
+        curves.append({
+            "name": name,
+            "label": c.get("label", ""),
+            "points": c.get("points", []),
+            "hysteresis_c": c.get("hysteresis_c", 3),
+            "gpu_points": gpu.get("points", []) if gpu else None,
+            "gpu_hysteresis_c": gpu.get("hysteresis_c", c.get("hysteresis_c", 3)) if gpu else None,
+            "manual_percent": c.get("manual_percent"),
+            "temp_c": live.get("temp_c"),
+            "applied_percent": live.get("applied_percent"),
+            "rpm": live.get("rpm"),
+            "active_source": live.get("active_source"),
+        })
+
+    print(json.dumps({
+        "curves": curves,
+        "updated": status.get("updated", 0),
+        "hotter_source": status.get("hotter_source"),
+        "cpu_temp_c": status.get("cpu_temp_c"),
+        "gpu_temp_c": status.get("gpu_temp_c"),
+    }))
+
+
+if __name__ == "__main__":
+    main()
