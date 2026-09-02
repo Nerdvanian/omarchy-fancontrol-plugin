@@ -40,7 +40,7 @@ itself, you need to apply those patches manually.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<your-username>/<repo>.git --enable --yes
+omarchy plugin add https://github.com/Nerdvanian/omarchy-fancontrol-plugin.git --enable --yes
 ```
 
 Then apply the daemon patches (see [`daemon-patches/README.md`](daemon-patches/README.md)) and restart the daemon:
