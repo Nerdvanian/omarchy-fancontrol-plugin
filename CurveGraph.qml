@@ -74,6 +74,7 @@ Item {
   }
 
   property int dragIndex: -1
+  property int hoverIndex: -1  // point nearest the pointer while not dragging -- drives the tooltip on hover
 
   // Traces a flat-clamped curve line into ctx's current path (caller
   // strokes it) -- shared by the interactive curve and the dimmed ghost.
@@ -201,6 +202,39 @@ Item {
     }
   }
 
+  // Live tooltip for whichever point is being dragged or, absent a drag,
+  // hovered -- follows the dot so the temp/speed readout tracks it in
+  // real time instead of only appearing on click.
+  Rectangle {
+    id: tooltip
+    readonly property int idx: root.dragIndex >= 0 ? root.dragIndex : root.hoverIndex
+    readonly property bool shown: idx >= 0 && idx < root.dragPoints.length
+    readonly property var pt: shown ? root.dragPoints[idx] : [0, 0]
+    readonly property real dotX: shown ? root.plotX(pt[0]) : 0
+    readonly property real dotY: shown ? root.plotY(pt[1]) : 0
+    readonly property bool placeBelow: dotY - height - Style.space(10) < root.padTop
+
+    visible: shown
+    z: 3
+    color: Color.background
+    border.color: root.lineColor
+    border.width: 1
+    radius: Style.space(4)
+    width: label.implicitWidth + Style.space(12)
+    height: label.implicitHeight + Style.space(8)
+    x: Math.max(0, Math.min(root.width - width, dotX - width / 2))
+    y: placeBelow ? dotY + Style.space(10) : dotY - height - Style.space(10)
+
+    Text {
+      id: label
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: tooltip.shown ? Math.round(tooltip.pt[0]) + "°C  ·  " + Math.round(tooltip.pt[1]) + "% speed" : ""
+      color: root.textColor
+      font.pixelSize: Style.font.caption
+    }
+  }
+
   MouseArea {
     id: plotArea
     anchors.fill: parent
@@ -212,7 +246,10 @@ Item {
     }
 
     onPositionChanged: function(mouse) {
-      if (root.dragIndex < 0) return
+      if (root.dragIndex < 0) {
+        root.hoverIndex = root.hitTest(mouse.x, mouse.y)
+        return
+      }
       var t = root.clampTemp(root.unplotX(mouse.x))
       var p = root.clampPercent(root.unplotY(mouse.y))
       var pts = root.dragPoints.map(function(pt) { return [pt[0], pt[1]] })
@@ -220,8 +257,11 @@ Item {
       root.dragPoints = pts
     }
 
+    onExited: root.hoverIndex = -1
+
     onReleased: function(mouse) {
       if (root.dragIndex < 0) return
+      root.hoverIndex = root.hitTest(mouse.x, mouse.y)
       root.dragIndex = -1
       root.pointsEdited(root.dragPoints)
     }
