@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Copy a curve (CPU or GPU) from another fan instead of reshaping every
+  fan's curve from scratch — a "Copy curve from:" dropdown next to the
+  CPU/GPU toggle.
+
 ## [1.0.1] - 2026-09-02
 
 ### Fixed

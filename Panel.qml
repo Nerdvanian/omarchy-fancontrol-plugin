@@ -74,6 +74,7 @@ Panel {
       root.editGpuPoints = c.gpu_points ? c.gpu_points.map(function(p) { return [p[0], p[1]] }) : null
       root.editGpuHysteresis = typeof c.gpu_hysteresis_c === "number" ? c.gpu_hysteresis_c : 3
       root.editingSource = "cpu"  // always land on the CPU view when switching fans
+      root.copySourceName = ""   // stale source picks fought editingSource's own reset when it was already "cpu"
       // TextField.text isn't bound to editLabel (typing would fight the
       // binding), so push the reset in explicitly -- same idiom as the
       // weather panel's location field.
@@ -156,6 +157,38 @@ Panel {
     root.editGpuPoints = null
     root.editingSource = "cpu"
     writeProc.runWith(root.selectedCurve, { gpu: null })
+  }
+
+  property string copySourceName: ""   // fan picked in the "copy curve from" dropdown
+
+  // Other fans that have a usable curve of whichever type (cpu/gpu) is
+  // currently being viewed -- the fan being edited is excluded, and a fan
+  // with no gpu profile is excluded while viewing the GPU tab.
+  readonly property var copySourceOptions: root.curves
+    .filter(function(c) {
+      if (c.name === root.selectedCurve) return false
+      if (root.editingSource === "gpu") return c.gpu_points && c.gpu_points.length > 0
+      return true
+    })
+    .map(function(c) { return { value: c.name, label: root.displayLabel(c) } })
+
+  onEditingSourceChanged: root.copySourceName = ""
+
+  function copyCurveFrom(sourceName) {
+    var src = root.findCurve(sourceName)
+    if (!src) return
+    if (root.editingSource === "gpu") {
+      if (!src.gpu_points || src.gpu_points.length === 0) return
+      var gpts = src.gpu_points.map(function(p) { return [p[0], p[1]] })
+      root.editGpuPoints = gpts
+      root.editGpuHysteresis = typeof src.gpu_hysteresis_c === "number" ? src.gpu_hysteresis_c : 3
+      writeProc.runWith(root.selectedCurve, { gpu: { points: gpts, hysteresis_c: root.editGpuHysteresis } })
+    } else {
+      var pts = (src.points || []).map(function(p) { return [p[0], p[1]] })
+      root.editPoints = pts
+      root.editHysteresis = typeof src.hysteresis_c === "number" ? src.hysteresis_c : 3
+      writeProc.runWith(root.selectedCurve, { points: pts, hysteresis_c: root.editHysteresis })
+    }
   }
 
   function open() {
@@ -365,6 +398,40 @@ Panel {
             text: "Remove GPU curve"
             anchors.verticalCenter: parent.verticalCenter
             onClicked: root.removeGpuCurve()
+          }
+        }
+
+        Row {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.copySourceOptions.length > 0
+
+          Text {
+            textFormat: Text.PlainText
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Copy " + (root.editingSource === "gpu" ? "GPU" : "CPU") + " curve from:"
+            color: Qt.darker(root.barForeground, 1.4)
+            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Dropdown {
+            id: copySourceDropdown
+            anchors.verticalCenter: parent.verticalCenter
+            options: root.copySourceOptions
+            value: root.copySourceName
+            foreground: root.barForeground
+            onChanged: function(v) { root.copySourceName = v }
+          }
+
+          Button {
+            text: "Copy"
+            anchors.verticalCenter: parent.verticalCenter
+            enabled: root.copySourceName !== ""
+            onClicked: {
+              root.copyCurveFrom(root.copySourceName)
+              root.copySourceName = ""
+            }
           }
         }
 

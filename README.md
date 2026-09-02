@@ -26,6 +26,9 @@ switches in automatically depending on whether the CPU or GPU is a higher temp.
   hysteresis band, so it doesn't flap right at the crossover) and switches
   every fan that has a GPU curve onto it while the GPU is the hotter one.
   Fans without a GPU curve just keep responding to CPU temp as normal.
+- **Copy a curve between fans** — pick another fan from the dropdown and
+  copy its CPU (or GPU) curve onto the one you're editing, instead of
+  reshaping every fan's curve from scratch.
 
 ## Requirements
 
