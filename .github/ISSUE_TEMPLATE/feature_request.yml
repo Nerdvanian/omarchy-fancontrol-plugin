@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an idea for this project
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a bigger idea, consider starting a
+        [discussion](../../discussions/categories/ideas) instead — issues are
+        better suited to a concrete, scoped request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that isn't currently possible (or is awkward)?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to submit a PR for this (see [CONTRIBUTING.md](../../blob/main/CONTRIBUTING.md))

@@ -1,0 +1,84 @@
+name: Bug report
+description: Something isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A lot of "bugs" in this
+        project turn out to be the daemon patches not being applied (manual
+        override, GPU curves, rename, and remove are daemon-side features —
+        see [`daemon-patches/README.md`](../../blob/main/daemon-patches/README.md))
+        — the checklist below helps rule that out first.
+
+  - type: checkboxes
+    id: prereqs
+    attributes:
+      label: Checklist
+      options:
+        - label: I've applied the patches in `daemon-patches/` and restarted `omarchy-fancontrol.service` (only needed if the bug involves manual override, GPU curves, renaming, or removing a fan)
+        - label: I restarted the shell (`omarchy restart shell`) after any plugin update, not just a `rescanPlugins`
+        - label: I checked the daemon is actually running (`systemctl status omarchy-fancontrol.service`)
+
+  - type: input
+    id: omarchy-version
+    attributes:
+      label: Omarchy version
+      description: Output of `omarchy version`
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gpu-vendor
+    attributes:
+      label: GPU vendor
+      description: Only relevant if this is about GPU curves or the GPU temp reading (currently NVIDIA-only, via `nvidia-smi`)
+      options:
+        - NVIDIA
+        - AMD
+        - Intel
+        - No dedicated GPU
+        - Not applicable to this bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Daemon: `journalctl -u omarchy-fancontrol.service -n 50`
+        Shell/QML: the quickshell log at `/run/user/$(id -u)/quickshell/by-id/*/log.log` (most recent one)
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

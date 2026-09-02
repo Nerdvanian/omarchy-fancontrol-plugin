@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/discussions/categories/q-a
+    about: Not sure if it's a bug, or just have a question? Ask here instead.
+  - name: Report a security vulnerability
+    url: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/security/advisories/new
+    about: Please don't open a public issue for security reports — see SECURITY.md.
