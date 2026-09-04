@@ -31,7 +31,6 @@ switches in automatically depending on whether the CPU or GPU is a higher temp.
   reshaping every fan's curve from scratch.
 - **In-panel help** — a "?" button in the header opens a quick FAQ
   (adding/removing curve points, renaming, manual override, GPU curves)
-  instead of a permanent paragraph of tips at the bottom of the panel.
 
 ## Requirements
 
