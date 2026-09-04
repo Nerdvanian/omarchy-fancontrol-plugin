@@ -1,0 +1,17 @@
+[Unit]
+Description=Omarchy Fan Control (temperature-to-PWM curves)
+After=multi-user.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=15
+ExecStart=/usr/bin/python3 {{DAEMON_DIR}}/fancontrold.py --config {{CONFIG_PATH}}
+ExecStopPost=/usr/bin/python3 {{DAEMON_DIR}}/fancontrol_recover_pwm.py
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=omarchy-fancontrol
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

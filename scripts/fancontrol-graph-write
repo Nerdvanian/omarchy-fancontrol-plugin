@@ -24,20 +24,35 @@ Usage: fancontrol-graph-write <curve_name> <json_payload>
 """
 
 import json
+import math
 import sys
 
 CONFIG_PATH = None  # set in main() after expanduser
 
 
-def clamp(value, low, high):
-    return max(low, min(high, value))
+def finite_float(value, low, high):
+    """Coerce value to a float and clamp to [low, high] -- but reject
+    NaN/Infinity outright rather than silently clamping them. Python's
+    float() and json.loads() both parse "NaN"/"Infinity" by default (a
+    non-standard JSON extension), and without this check they'd land on
+    whichever bound Python's min()/max() happen to pick for a NaN
+    comparison -- accidentally bounded, but not an intentional rejection,
+    and not something to rely on."""
+    v = float(value)
+    if not math.isfinite(v):
+        raise ValueError(f"expected a finite number, got {value!r}")
+    return max(low, min(high, v))
 
 
 def normalize_points(raw_points):
+    if not isinstance(raw_points, list):
+        raise ValueError(f"points must be a list, got {raw_points!r}")
     points = []
     for p in raw_points:
-        temp_c = clamp(float(p[0]), 0, 100)
-        percent = clamp(float(p[1]), 0, 100)
+        if not isinstance(p, (list, tuple)) or len(p) != 2:
+            raise ValueError(f"each point must be [temp_c, percent], got {p!r}")
+        temp_c = finite_float(p[0], 0, 100)
+        percent = finite_float(p[1], 0, 100)
         points.append([round(temp_c, 1), round(percent, 1)])
     points.sort(key=lambda p: p[0])
     if len(points) < 2:
@@ -74,10 +89,10 @@ def main():
         if "points" in payload:
             target["points"] = normalize_points(payload["points"])
         if "hysteresis_c" in payload:
-            target["hysteresis_c"] = clamp(float(payload["hysteresis_c"]), 0, 30)
+            target["hysteresis_c"] = finite_float(payload["hysteresis_c"], 0, 30)
         if "manual_percent" in payload:
             manual_percent = payload["manual_percent"]
-            target["manual_percent"] = None if manual_percent is None else clamp(float(manual_percent), 0, 100)
+            target["manual_percent"] = None if manual_percent is None else finite_float(manual_percent, 0, 100)
         if "label" in payload:
             target["label"] = str(payload["label"] or "")[:60]
         if "gpu" in payload:
@@ -87,7 +102,7 @@ def main():
             else:
                 target["gpu"] = {
                     "points": normalize_points(gpu["points"]),
-                    "hysteresis_c": clamp(float(gpu.get("hysteresis_c", 3)), 0, 30),
+                    "hysteresis_c": finite_float(gpu.get("hysteresis_c", 3), 0, 30),
                 }
 
     with open(CONFIG_PATH, "w") as f:

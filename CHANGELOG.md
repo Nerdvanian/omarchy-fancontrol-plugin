@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-04
+
+### Added
+
+- `scripts/fancontrol-daemon-install` / `fancontrol-daemon-uninstall`:
+  the daemon patch and its systemd unit are now applied by a transactional
+  installer instead of manual `cp`/`sudo systemctl restart` steps —
+  hash-verified against `daemon-patches/manifest.json`, backed up before
+  every change, and automatically rolled back with the service restarted
+  and re-verified if the new daemon doesn't come up healthy.
+  `fancontrol-daemon-uninstall --restore`/`--full` can put the daemon (and
+  now the unit) back to the pre-plugin snapshot the installer pins on its
+  first run.
+- `daemon-patches/`: the patched daemon now pings systemd
+  (`sd_notify(WATCHDOG=1)`) once per poll, and the unit adds
+  `WatchdogSec=15` so a hung (not crashed) daemon gets killed and
+  restarted automatically. A new `ExecStopPost=fancontrol_recover_pwm.py`
+  restores any pwm header's `pwm_enable` the daemon didn't get to restore
+  itself — covers `SIGKILL`/OOM, not just a clean exit.
+- `daemon-patches/`: every value read from `config.yaml` (curve points,
+  hysteresis, min/max/manual percent, poll interval) is now validated on
+  load — rejected if not a finite number, clamped if merely out of range.
+  A single malformed curve is skipped and logged instead of taking the
+  whole daemon down with it, and a config reload that fails outright
+  falls back to the last-known-good config instead of crashing.
+  `fancontrol-graph-write` gained the same explicit NaN/Infinity
+  rejection on the write side.
+
 ## [1.2.0] - 2026-09-02
 
 ### Added
@@ -82,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the old speed instead of re-evaluating fresh against the newly active
   curve.
 
-[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.0.1...v1.1.0

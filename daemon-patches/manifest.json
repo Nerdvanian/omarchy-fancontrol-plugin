@@ -1,0 +1,12 @@
+{
+  "patch_version": "1.2.0",
+  "files": {
+    "fancontrold.py": "sha256:410d4ca89938cd469d89fb974ed905e1f6edbef4b21403d1e29c24017c22247c",
+    "fancontrol_detect.py": "sha256:9c7a6aeac22e03b0803b136ccb5caad29914d505969ef09c341a345ddca94056",
+    "fancontrol_recover_pwm.py": "sha256:af79a8cd0044de17c30a37d922ac6b304f5d584bdeea29a5991edfb2115df799"
+  },
+  "unit_template": {
+    "name": "omarchy-fancontrol.service.tmpl",
+    "hash": "sha256:aea43a89e5101ca96d9d07f29409c94104edb12544a5914f96b547fa2291e4ed"
+  }
+}

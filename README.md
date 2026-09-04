@@ -38,7 +38,7 @@ curves, or fan removal/labels — those are daemon-side features, not just
 UI. See [`daemon-patches/`](daemon-patches) for the patched
 `fancontrold.py` and `fancontrol_detect.py` (a diff against the stock
 files, plus install steps). Until/unless this lands upstream in Omarchy
-itself, you need to apply those patches manually.
+itself, you need to apply those patches via the installer below.
 
 ## Install
 
@@ -46,11 +46,16 @@ itself, you need to apply those patches manually.
 omarchy plugin add https://github.com/Nerdvanian/omarchy-fancontrol-plugin.git --enable --yes
 ```
 
-Then apply the daemon patches (see [`daemon-patches/README.md`](daemon-patches/README.md)) and restart the daemon:
+Then apply the daemon patch (see [`daemon-patches/README.md`](daemon-patches/README.md) for what it does):
 
 ```bash
-sudo systemctl restart omarchy-fancontrol.service
+~/.config/omarchy/plugins/nerdvanian.fancontrol/scripts/fancontrol-daemon-install
 ```
+
+This verifies the patch files against pinned hashes, backs up whatever's
+currently installed, applies the patch, and restarts
+`omarchy-fancontrol.service` itself — confirming it comes back up healthy
+before finishing, and rolling back automatically if it doesn't.
 
 ## Uninstall
 
@@ -63,25 +68,38 @@ can still edit it by hand or with `~/.local/share/omarchy-fancontrol/fancontrol-
 omarchy plugin remove nerdvanian.fancontrol
 ```
 
+To put the daemon back the way it was before this plugin's installer ever
+touched it — undoes the daemon patch (manual override, GPU curves, fan
+removal/labels go away) but leaves `omarchy-fancontrol` running your
+existing curves:
+
+```bash
+~/.config/omarchy/plugins/nerdvanian.fancontrol/scripts/fancontrol-daemon-uninstall --restore
+```
+
+This restores from the snapshot `fancontrol-daemon-install` took the first
+time it ever ran on this machine, restarts the service, and confirms it
+comes back up healthy.
+
 To undo everything, including fan control itself — this hands every pwm
 header back to firmware/BIOS auto control:
 
 ```bash
 omarchy plugin remove nerdvanian.fancontrol
-sudo systemctl disable --now omarchy-fancontrol.service
-rm -rf ~/.config/omarchy-fancontrol
+~/.config/omarchy/plugins/nerdvanian.fancontrol/scripts/fancontrol-daemon-uninstall --full
 ```
 
+`--full` does the restore above, then stops and disables
+`omarchy-fancontrol.service` and removes `~/.config/omarchy-fancontrol`.
 Stopping the service restores each pwm's original `pwm_enable` value
 automatically (that's built into the daemon, not something this cleanup
 does) — the fans return to normal firmware control the moment it stops.
 
-Note there's no known way to revert `~/.local/share/omarchy-fancontrol/`
-(`fancontrold.py`, `fancontrol_detect.py`) to a "stock" version on its
-own — nothing on a stock Omarchy install owns those files as a package, so
-there's nothing to reinstall over them. If you disable the service as
-above they're simply inert; delete
-`~/.local/share/omarchy-fancontrol/` too if you want them gone entirely.
+If the daemon patch was never applied via `fancontrol-daemon-install` (no
+snapshot to restore from), `--full` skips the restore step and just
+disables the service and removes the config — same end state as manually
+running `sudo systemctl disable --now omarchy-fancontrol.service && rm -rf
+~/.config/omarchy-fancontrol`.
 
 ## Files
 

@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Installs this plugin's patched omarchy-fancontrol daemon files and
+systemd unit.
+
+Replaces ~/.local/share/omarchy-fancontrol/{fancontrold.py,fancontrol_detect.py,
+fancontrol_recover_pwm.py} and /etc/systemd/system/omarchy-fancontrol.service
+with the versions rendered from daemon-patches/ -- verified against
+daemon-patches/manifest.json before anything is touched -- then restarts
+omarchy-fancontrol.service and confirms it comes back up before declaring
+success. If the service doesn't come back healthy, everything is restored
+to what was there before and the service is restarted again, so a bad
+patch never gets left in place silently.
+
+The unit adds a systemd watchdog (WatchdogSec=15, fed by the daemon's own
+sd_notify(WATCHDOG=1) each poll) so a hung-but-not-exited daemon gets
+killed and restarted automatically, and an ExecStopPost= that runs
+fancontrol_recover_pwm.py on every stop -- clean, crashed, or
+watchdog-killed -- to put back any pwm_enable value the daemon didn't get
+to restore itself.
+
+Usage: fancontrol-daemon-install [--dry-run]
+
+Every install takes a fresh timestamped backup under
+~/.local/share/omarchy-fancontrol/.fancontrol-plugin-backup/ (daemon files
+plus the unit file as it stood before this run). The very first one ever
+taken on a given machine is additionally pinned at .../original/ and never
+overwritten by later runs, so `fancontrol-daemon-uninstall --restore`
+always has a pre-plugin snapshot to return to, even after several plugin
+updates.
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _daemon_common import (
+    CONFIG_PATH,
+    DAEMON_DIR,
+    PATCH_DIR,
+    PATCHED_FILES,
+    SERVICE,
+    STATE_PATH,
+    UNIT_PATH,
+    UNIT_TEMPLATE_NAME,
+    VERIFY_TIMEOUT_S,
+    backup_current,
+    restore_from,
+    restore_unit_from,
+    run_sudo,
+    sha256_file,
+    sudo_install_file,
+    systemctl_daemon_reload,
+    wait_for_healthy,
+)
+
+
+def load_manifest():
+    """Load daemon-patches/manifest.json and verify every patched file
+    (and the unit template) in this checkout matches its pinned hash --
+    refuses to install on a mismatch instead of silently patching in
+    something unreviewed."""
+    manifest_path = os.path.join(PATCH_DIR, "manifest.json")
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    for name in PATCHED_FILES:
+        actual = sha256_file(os.path.join(PATCH_DIR, name))
+        expected = manifest["files"].get(name)
+        if expected != f"sha256:{actual}":
+            raise SystemExit(
+                f"refusing to install: {name} does not match manifest.json "
+                f"(expected {expected}, got sha256:{actual}) -- this plugin "
+                f"checkout may be corrupted or modified"
+            )
+
+    unit_meta = manifest["unit_template"]
+    actual = sha256_file(os.path.join(PATCH_DIR, unit_meta["name"]))
+    expected = unit_meta["hash"]
+    if expected != f"sha256:{actual}":
+        raise SystemExit(
+            f"refusing to install: {unit_meta['name']} does not match "
+            f"manifest.json (expected {expected}, got sha256:{actual}) -- "
+            f"this plugin checkout may be corrupted or modified"
+        )
+    return manifest
+
+
+def render_unit():
+    """Fill in the machine-specific bits (this user's daemon dir and
+    config path) of the reviewed unit template. Everything else in the
+    unit -- Type=notify, WatchdogSec, ExecStopPost, Restart policy -- comes
+    verbatim from the hash-checked template."""
+    manifest = load_manifest()
+    template_path = os.path.join(PATCH_DIR, manifest["unit_template"]["name"])
+    with open(template_path) as f:
+        text = f.read()
+    return text.replace("{{DAEMON_DIR}}", DAEMON_DIR).replace("{{CONFIG_PATH}}", CONFIG_PATH)
+
+
+def apply_unit():
+    """Stage the rendered unit locally (no sudo needed to write into our
+    own DAEMON_DIR), then sudo-install it over the real unit path and
+    reload systemd so it picks up the change."""
+    staged = os.path.join(DAEMON_DIR, "omarchy-fancontrol.service.staged")
+    with open(staged, "w") as f:
+        f.write(render_unit())
+    sudo_install_file(staged, UNIT_PATH)
+    os.remove(staged)
+    systemctl_daemon_reload()
+
+
+def stage_and_apply():
+    """Copy the new files in as *.new, verify each copy against the
+    manifest-checked source, then atomically rename over the live targets
+    so there's never a moment where a target file is half-written."""
+    for name in PATCHED_FILES:
+        src = os.path.join(PATCH_DIR, name)
+        staged = os.path.join(DAEMON_DIR, name + ".new")
+        import shutil
+
+        shutil.copy2(src, staged)
+        if sha256_file(staged) != sha256_file(src):
+            raise SystemExit(f"staged copy of {name} does not match source -- aborting")
+
+    for name in PATCHED_FILES:
+        staged = os.path.join(DAEMON_DIR, name + ".new")
+        target = os.path.join(DAEMON_DIR, name)
+        os.replace(staged, target)  # same filesystem -> atomic swap
+
+
+def write_state(manifest, ok):
+    state = {
+        "patch_version": manifest["patch_version"],
+        "applied_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "hashes": manifest["files"],
+        "unit_hash": manifest["unit_template"]["hash"],
+        "verified": ok,
+    }
+    with open(STATE_PATH, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="verify the manifest and current install, but change nothing",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isdir(DAEMON_DIR):
+        raise SystemExit(f"{DAEMON_DIR} not found -- is omarchy-fancontrol installed?")
+
+    manifest = load_manifest()
+    print(f"daemon patch version {manifest['patch_version']}: hashes verified OK")
+
+    if args.dry_run:
+        print("dry run: not touching any files or services")
+        return
+
+    backup_dir = backup_current(reason="pre-install")
+
+    applied = True
+    try:
+        stage_and_apply()
+        apply_unit()
+    except SystemExit as e:
+        print(f"!! could not apply the patch: {e}")
+        applied = False
+
+    since = time.time()
+    restarted = False
+    if applied:
+        try:
+            run_sudo(["systemctl", "restart", SERVICE], f"restarting {SERVICE}")
+            restarted = True
+        except SystemExit as e:
+            print(f"!! could not restart {SERVICE}: {e}")
+
+    if restarted and wait_for_healthy(since):
+        write_state(manifest, ok=True)
+        print(f"-> {SERVICE} healthy with the new daemon files and unit")
+        return
+
+    if not applied:
+        print("!! applying the patch failed -- rolling back")
+    elif restarted:
+        print(f"!! {SERVICE} did not come back healthy within {VERIFY_TIMEOUT_S}s -- rolling back")
+    else:
+        print("!! restart command never ran, so the new files were never loaded -- rolling back")
+    restore_from(backup_dir)
+    restore_unit_from(backup_dir)
+
+    since = time.time()
+    try:
+        run_sudo(["systemctl", "restart", SERVICE], f"restarting {SERVICE} after rollback")
+    except SystemExit as e:
+        raise SystemExit(
+            f"install failed and the pre-install files ARE restored on disk "
+            f"at {DAEMON_DIR} (and the unit at {UNIT_PATH}), but restarting "
+            f"{SERVICE} to load them failed too ({e}). Run "
+            f"`sudo systemctl restart {SERVICE}` yourself to finish the "
+            f"rollback. Backup also kept at {backup_dir}."
+        )
+
+    if wait_for_healthy(since):
+        write_state(manifest, ok=False)
+        raise SystemExit(
+            "install failed and was rolled back; the previously installed "
+            "daemon files are back in place and the service is healthy again"
+        )
+
+    raise SystemExit(
+        f"install failed AND rollback did not bring {SERVICE} back healthy -- "
+        f"manual intervention needed. Backup of the pre-install files is at "
+        f"{backup_dir}; check `journalctl -u {SERVICE}` for why the daemon "
+        f"won't start."
+    )
+
+
+if __name__ == "__main__":
+    main()

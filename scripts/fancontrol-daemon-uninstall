@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Restores or removes this plugin's patched omarchy-fancontrol daemon files.
+
+Two tiers:
+
+  --restore   Puts the daemon files back exactly as they were before this
+              plugin's installer first touched them (from the `original/`
+              backup fancontrol-daemon-install pins on its first run),
+              restarts the service, and confirms it comes back up healthy.
+              Fan control keeps running -- just without manual override,
+              GPU curves, or fan removal/labels, since those are
+              daemon-side features this patch adds.
+
+  --full      Does the above, then stops and disables
+              omarchy-fancontrol.service and removes
+              ~/.config/omarchy-fancontrol entirely. Every pwm header goes
+              back to firmware/BIOS auto control -- stopping the service
+              restores each one's original pwm_enable, same as it always
+              has -- and nothing of this plugin's is left running or
+              configured.
+
+Neither tier removes the plugin itself (the bar widget/QML); do that
+separately with `omarchy plugin remove nerdvanian.fancontrol`.
+
+Usage: fancontrol-daemon-uninstall (--restore | --full) [--yes] [--dry-run]
+"""
+
+import argparse
+import os
+import shutil
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _daemon_common import (
+    CONFIG_DIR,
+    DAEMON_DIR,
+    ORIGINAL_DIR,
+    PATCHED_FILES,
+    SERVICE,
+    backup_current,
+    restore_from,
+    restore_unit_from,
+    run_sudo,
+    wait_for_healthy,
+)
+
+
+def confirm(prompt, assume_yes):
+    if assume_yes:
+        return True
+    reply = input(f"{prompt} [y/N] ").strip().lower()
+    return reply == "y"
+
+
+def do_restore(assume_yes):
+    if not os.path.isdir(ORIGINAL_DIR):
+        raise SystemExit(
+            f"no pre-patch backup found at {ORIGINAL_DIR} -- "
+            f"fancontrol-daemon-install has never run on this machine "
+            f"(or its backup was deleted), so there's nothing recorded to "
+            f"restore to. The daemon files can only be put back manually."
+        )
+
+    if not confirm(
+        f"Restore {', '.join(PATCHED_FILES)} in {DAEMON_DIR} to their "
+        f"pre-plugin state and restart {SERVICE}?",
+        assume_yes,
+    ):
+        print("aborted")
+        return False
+
+    backup_current(reason="pre-uninstall")
+    restore_from(ORIGINAL_DIR)
+    unit_restored = restore_unit_from(ORIGINAL_DIR)
+
+    since = time.time()
+    try:
+        run_sudo(["systemctl", "restart", SERVICE], f"restarting {SERVICE}")
+    except SystemExit as e:
+        raise SystemExit(
+            f"the pre-plugin files ARE restored on disk at {DAEMON_DIR}, but "
+            f"restarting {SERVICE} to load them failed ({e}). Run "
+            f"`sudo systemctl restart {SERVICE}` yourself to finish."
+        )
+    if wait_for_healthy(since):
+        unit_note = " and unit" if unit_restored else " (no pre-patch unit snapshot to restore)"
+        print(f"-> {SERVICE} healthy, running the pre-plugin daemon{unit_note} again")
+        return True
+
+    raise SystemExit(
+        f"{SERVICE} did not come back healthy after restoring -- check "
+        f"`journalctl -u {SERVICE}`. The files in place immediately before "
+        f"this restore were backed up first, so nothing pre-existing was lost."
+    )
+
+
+def do_full(assume_yes):
+    if os.path.isdir(ORIGINAL_DIR):
+        do_restore(assume_yes)
+    else:
+        print(f"-> no {ORIGINAL_DIR} to restore from, skipping restore step")
+
+    if not confirm(
+        f"Stop and disable {SERVICE}, and delete {CONFIG_DIR} (your fan curves)?",
+        assume_yes,
+    ):
+        print("aborted")
+        return
+
+    run_sudo(["systemctl", "disable", "--now", SERVICE], f"stopping and disabling {SERVICE}")
+
+    if os.path.isdir(CONFIG_DIR):
+        shutil.rmtree(CONFIG_DIR)
+        print(f"-> removed {CONFIG_DIR}")
+    else:
+        print(f"-> {CONFIG_DIR} not present, nothing to remove")
+
+    print(
+        "-> done. Every pwm header is back under firmware/BIOS auto "
+        "control. The plugin itself (bar widget) is untouched -- remove it "
+        "with `omarchy plugin remove nerdvanian.fancontrol`."
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--restore", action="store_true",
+        help="restore the pre-plugin daemon files and restart the service",
+    )
+    group.add_argument(
+        "--full", action="store_true",
+        help="restore, then stop/disable the service and delete its config",
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="don't prompt for confirmation",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="check preconditions and print what would happen, but change nothing",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isdir(DAEMON_DIR):
+        raise SystemExit(f"{DAEMON_DIR} not found -- nothing to uninstall")
+
+    if args.dry_run:
+        if args.full:
+            restore_note = (
+                f"restore from {ORIGINAL_DIR}, then"
+                if os.path.isdir(ORIGINAL_DIR)
+                else f"skip restore (no {ORIGINAL_DIR}), then"
+            )
+            print(f"[dry-run] would {restore_note} disable {SERVICE} and remove {CONFIG_DIR}")
+        else:
+            if not os.path.isdir(ORIGINAL_DIR):
+                raise SystemExit(f"no pre-patch backup found at {ORIGINAL_DIR}")
+            print(
+                f"[dry-run] would restore {', '.join(PATCHED_FILES)} from "
+                f"{ORIGINAL_DIR} and restart {SERVICE}"
+            )
+        return
+
+    if args.full:
+        do_full(args.yes)
+    else:
+        do_restore(args.yes)
+
+
+if __name__ == "__main__":
+    main()

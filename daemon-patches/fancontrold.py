@@ -12,8 +12,10 @@ import argparse
 import glob
 import json
 import logging
+import math
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -28,6 +30,7 @@ logging.basicConfig(
 log = logging.getLogger("omarchy-fancontrold")
 
 STATUS_PATH = "/run/omarchy-fancontrol/status.json"
+MANUAL_CONTROL_PATH = "/run/omarchy-fancontrol/manual-control.json"
 
 _running = True
 
@@ -39,6 +42,67 @@ def _handle_stop(signum, frame):
 
 signal.signal(signal.SIGTERM, _handle_stop)
 signal.signal(signal.SIGINT, _handle_stop)
+
+
+_notify_socket = os.environ.get("NOTIFY_SOCKET")
+
+
+def sd_notify(message):
+    """Best-effort sd_notify(3), reimplemented without a systemd dependency
+    (just the documented AF_UNIX datagram protocol). No-op if not launched
+    under systemd (NOTIFY_SOCKET unset) or if the send fails for any
+    reason -- notifying systemd is a nice-to-have for READY=1/WATCHDOG=1,
+    never something worth crashing the daemon over."""
+    if not _notify_socket:
+        return
+    addr = _notify_socket
+    if addr.startswith("@"):
+        addr = "\0" + addr[1:]
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.connect(addr)
+            sock.sendall(message.encode())
+    except OSError:
+        pass
+
+
+def load_manual_control_state():
+    try:
+        with open(MANUAL_CONTROL_PATH) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_manual_control_state(state):
+    tmp_path = MANUAL_CONTROL_PATH + ".tmp"
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp_path, MANUAL_CONTROL_PATH)
+    except OSError as e:
+        log.warning("failed to persist manual-control state: %s", e)
+
+
+def _record_manual_control(pwm_enable_path, original_value):
+    """Persist {pwm_enable_path: original_value} to disk as each pwm is
+    taken over, so fancontrol_recover_pwm.py (run by the service's
+    ExecStopPost=) can still put it back even if this process is killed
+    before its own finally/restore() ever runs."""
+    if pwm_enable_path is None:
+        return
+    state = load_manual_control_state()
+    state[pwm_enable_path] = original_value
+    save_manual_control_state(state)
+
+
+def _clear_manual_control(pwm_enable_path):
+    if pwm_enable_path is None:
+        return
+    state = load_manual_control_state()
+    if pwm_enable_path in state:
+        del state[pwm_enable_path]
+        save_manual_control_state(state)
 
 
 def find_hwmon_by_chip(chip_name):
@@ -113,6 +177,36 @@ def read_cpu_ref_temp_c():
         return None
 
 
+def finite_float(value, low, high):
+    """Coerce value to a float, reject NaN/Infinity outright (Python's
+    float() and JSON both happily parse them, but a curve built from one
+    would silently misbehave -- see clamp() in fancontrol-graph-write for
+    the same concern on the write side), and clamp anything merely
+    out-of-range into [low, high]. Raises TypeError/ValueError for
+    anything that isn't a plain finite number -- callers that construct a
+    whole Curve from a config entry let that propagate so the curve gets
+    skipped rather than silently running with a bogus value."""
+    v = float(value)
+    if not math.isfinite(v):
+        raise ValueError(f"expected a finite number, got {value!r}")
+    return max(low, min(high, v))
+
+
+def validate_points(raw_points):
+    """A curve's points list, each pair clamped to the same [0, 100]
+    temp/percent range fancontrol-graph-write enforces on the write side
+    -- this is the belt to that suspenders, since config.yaml can also be
+    hand-edited or written by something else entirely."""
+    if not isinstance(raw_points, list) or len(raw_points) < 2:
+        raise ValueError("points must be a list of at least 2 [temp_c, percent] pairs")
+    points = []
+    for p in raw_points:
+        if not isinstance(p, (list, tuple)) or len(p) != 2:
+            raise ValueError(f"each point must be [temp_c, percent], got {p!r}")
+        points.append((finite_float(p[0], 0, 100), finite_float(p[1], 0, 100)))
+    return points
+
+
 def interpolate(points, temp_c):
     pts = sorted(points, key=lambda p: p[0])
     if temp_c <= pts[0][0]:
@@ -136,10 +230,10 @@ class Curve:
         self.pwm_chip = spec["pwm"]["chip"]
         self.pwm_index = int(spec["pwm"]["index"])
         self.fan_index = int(spec["pwm"].get("fan_index", self.pwm_index))
-        self.points = [tuple(p) for p in spec["points"]]
-        self.hysteresis_c = float(spec.get("hysteresis_c", 3))
-        self.min_percent = float(spec.get("min_percent", 0))
-        self.max_percent = float(spec.get("max_percent", 100))
+        self.points = validate_points(spec["points"])
+        self.hysteresis_c = finite_float(spec.get("hysteresis_c", 3), 0, 30)
+        self.min_percent = finite_float(spec.get("min_percent", 0), 0, 100)
+        self.max_percent = finite_float(spec.get("max_percent", 100), 0, 100)
         # Optional second curve driven by GPU temp instead of CPU temp.
         # When present, main() decides once per poll whether the CPU or
         # the GPU is hotter (system-wide, not per curve) and every curve
@@ -147,8 +241,8 @@ class Curve:
         # curves without one always stay on the points/hysteresis_c above.
         gpu_spec = spec.get("gpu")
         if gpu_spec:
-            self.gpu_points = [tuple(p) for p in gpu_spec["points"]]
-            self.gpu_hysteresis_c = float(gpu_spec.get("hysteresis_c", self.hysteresis_c))
+            self.gpu_points = validate_points(gpu_spec["points"])
+            self.gpu_hysteresis_c = finite_float(gpu_spec.get("hysteresis_c", self.hysteresis_c), 0, 30)
         else:
             self.gpu_points = None
             self.gpu_hysteresis_c = None
@@ -159,7 +253,7 @@ class Curve:
         # took_manual_control below, which is about owning the hwmon
         # pwm*_enable file rather than the temp curve.
         manual_percent = spec.get("manual_percent")
-        self.manual_percent = None if manual_percent is None else float(manual_percent)
+        self.manual_percent = None if manual_percent is None else finite_float(manual_percent, 0, 100)
 
         self.temp_input = None
         self.pwm_path = None
@@ -200,6 +294,7 @@ class Curve:
                 self.original_pwm_enable = read_int(self.pwm_enable_path)
                 write_int(self.pwm_enable_path, 1)
             self.took_manual_control = True
+            _record_manual_control(self.pwm_enable_path, self.original_pwm_enable)
             log.info("%s: took manual control of %s", self.name, self.pwm_path)
         except OSError as e:
             log.warning("%s: could not take manual control: %s", self.name, e)
@@ -219,6 +314,7 @@ class Curve:
         except OSError as e:
             log.warning("%s: could not restore pwm_enable: %s", self.name, e)
         self.took_manual_control = False
+        _clear_manual_control(self.pwm_enable_path)
 
     def read_temp_c(self):
         return read_int(self.temp_input) / 1000.0
@@ -339,11 +435,29 @@ def decide_hotter_source(current, cpu_temp_c, gpu_temp_c, hysteresis_c):
 
 
 def load_config(path):
+    """Raises on a malformed top-level config -- unreadable file, invalid
+    YAML, or a poll_interval_s/gpu_source_hysteresis_c that isn't a plain
+    finite number -- so callers can fall back to the last-known-good
+    config instead of crashing the whole daemon over one bad edit (see
+    main()). An individual malformed *curve* is narrower: it's skipped
+    and logged rather than failing the whole load, since one bad curve
+    shouldn't take every other fan's control away."""
     with open(path) as f:
-        data = yaml.safe_load(f) or {}
-    poll_interval_s = float(data.get("poll_interval_s", 2))
-    gpu_source_hysteresis_c = float(data.get("gpu_source_hysteresis_c", 2))
-    curves = [Curve(c) for c in data.get("curves", [])]
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"config must be a YAML mapping, got {type(data).__name__}")
+
+    poll_interval_s = finite_float(data.get("poll_interval_s", 2), 0.2, 60)
+    gpu_source_hysteresis_c = finite_float(data.get("gpu_source_hysteresis_c", 2), 0, 30)
+
+    curves = []
+    for spec in data.get("curves") or []:
+        try:
+            curves.append(Curve(spec))
+        except Exception as e:
+            name = spec.get("name", "?") if isinstance(spec, dict) else "?"
+            log.warning("skipping invalid curve %r: %s", name, e)
+
     return poll_interval_s, gpu_source_hysteresis_c, curves
 
 
@@ -377,24 +491,38 @@ def main():
         log.error("config not found: %s", args.config)
         sys.exit(1)
 
-    poll_interval_s, gpu_source_hysteresis_c, curves = load_config(args.config)
+    try:
+        poll_interval_s, gpu_source_hysteresis_c, curves = load_config(args.config)
+    except Exception as e:
+        log.error("failed to load %s: %s", args.config, e)
+        sys.exit(1)
     last_mtime = os.stat(args.config).st_mtime
     log.info("loaded %d curve(s) from %s", len(curves), args.config)
 
     hotter_source = "cpu"
+    sd_notify("READY=1")
 
     try:
         while _running:
             try:
                 mtime = os.stat(args.config).st_mtime
-                if mtime != last_mtime:
-                    log.info("config changed, reloading")
-                    for c in curves:
-                        c.restore()
-                    poll_interval_s, gpu_source_hysteresis_c, curves = load_config(args.config)
-                    last_mtime = mtime
             except OSError:
-                pass
+                mtime = last_mtime
+
+            if mtime != last_mtime:
+                log.info("config changed, reloading")
+                for c in curves:
+                    c.restore()
+                try:
+                    poll_interval_s, gpu_source_hysteresis_c, curves = load_config(args.config)
+                except Exception as e:
+                    # Keep running on the previous (already-validated) config
+                    # rather than crash the daemon over one bad edit -- the
+                    # curves above were just restore()'d, so they'll simply
+                    # retake control on the next step() with their old
+                    # settings, same as before this reload attempt.
+                    log.error("failed to reload %s, keeping previous config: %s", args.config, e)
+                last_mtime = mtime
 
             cpu_ref_temp_c = read_cpu_ref_temp_c()
             gpu_temp_c = read_gpu_temp_c()
@@ -410,8 +538,10 @@ def main():
                     statuses.append(result)
 
             write_status(statuses, hotter_source, cpu_ref_temp_c, gpu_temp_c)
+            sd_notify("WATCHDOG=1")
             time.sleep(poll_interval_s)
     finally:
+        sd_notify("STOPPING=1")
         for c in curves:
             c.restore()
 
