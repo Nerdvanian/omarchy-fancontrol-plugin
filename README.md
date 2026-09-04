@@ -29,6 +29,9 @@ switches in automatically depending on whether the CPU or GPU is a higher temp.
 - **Copy a curve between fans** — pick another fan from the dropdown and
   copy its CPU (or GPU) curve onto the one you're editing, instead of
   reshaping every fan's curve from scratch.
+- **In-panel help** — a "?" button in the header opens a quick FAQ
+  (adding/removing curve points, renaming, manual override, GPU curves)
+  instead of a permanent paragraph of tips at the bottom of the panel.
 
 ## Requirements
 

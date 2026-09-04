@@ -89,6 +89,16 @@ Panel {
   }
 
   property bool removeConfirmOpen: false
+  property bool helpOpen: false
+
+  readonly property var helpItems: [
+    { q: "How do I reshape the curve?", a: "Drag a point on the graph." },
+    { q: "How do I add a curve point?", a: "Double-click an empty area of the graph." },
+    { q: "How do I remove a curve point?", a: "Double-click the point." },
+    { q: "How do I rename a fan?", a: "Type a name above and press Enter." },
+    { q: "How do I pin a fixed fan speed?", a: "Turn on Manual — the fan stays at that speed until you switch Manual back off." },
+    { q: "How do I make a fan react to GPU temperature?", a: "Click \"+ GPU curve\" — the fan automatically switches onto it whenever the GPU is hotter than the CPU." }
+  ]
 
   function requestRemove() {
     if (root.selectedCurve) root.removeConfirmOpen = true
@@ -256,7 +266,7 @@ Panel {
       // its own handling) instead of PanelKeyCatcher's global shortcuts
       // swallowing every keystroke. Same idiom as the weather panel's
       // location field (blocked: editingLocation).
-      blocked: nameField.activeFocus || root.removeConfirmOpen
+      blocked: nameField.activeFocus || root.removeConfirmOpen || root.helpOpen
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -265,31 +275,49 @@ Panel {
         width: parent.width
         spacing: Style.space(12)
 
-        Row {
+        Item {
           width: parent.width
-          spacing: Style.space(8)
+          height: Math.max(titleRow.implicitHeight, helpButton.implicitHeight)
 
-          Text {
-            textFormat: Text.PlainText
-            text: "Fan Control"
-            color: root.barForeground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.heading
-            font.bold: true
+          Row {
+            id: titleRow
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+
+            Text {
+              textFormat: Text.PlainText
+              text: "Fan Control"
+              color: root.barForeground
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.heading
+              font.bold: true
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              anchors.verticalCenter: parent.verticalCenter
+              text: {
+                var s = ""
+                if (!isNaN(root.cpuTempC)) s += "CPU " + Math.round(root.cpuTempC) + "°C"
+                if (!isNaN(root.gpuTempC)) s += (s ? " · " : "") + "GPU " + Math.round(root.gpuTempC) + "°C"
+                return s
+              }
+              color: Qt.darker(root.barForeground, 1.4)
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.bodySmall
+            }
           }
 
-          Text {
-            textFormat: Text.PlainText
+          Button {
+            id: helpButton
+            anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: {
-              var s = ""
-              if (!isNaN(root.cpuTempC)) s += "CPU " + Math.round(root.cpuTempC) + "°C"
-              if (!isNaN(root.gpuTempC)) s += (s ? " · " : "") + "GPU " + Math.round(root.gpuTempC) + "°C"
-              return s
-            }
-            color: Qt.darker(root.barForeground, 1.4)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.bodySmall
+            iconText: "?"
+            tooltipText: "Help"
+            bordered: true
+            foreground: root.barForeground
+            onClicked: root.helpOpen = !root.helpOpen
           }
         }
 
@@ -516,16 +544,6 @@ Panel {
             }
           }
         }
-
-        Text {
-          textFormat: Text.PlainText
-          width: parent.width
-          wrapMode: Text.WordWrap
-          text: "Drag a point to reshape the curve · double-click empty space to add a point · double-click a point to remove it · Manual pins the fan speed until switched back off · rename a fan above and press Enter · add a GPU curve to switch this fan onto it whenever the GPU is hotter than the CPU"
-          color: Qt.darker(root.barForeground, 1.6)
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.caption
-        }
       }
     }
 
@@ -540,6 +558,87 @@ Panel {
       selectedText: Color.accent
       onCanceled: root.cancelRemove()
       onConfirmed: root.confirmRemove()
+    }
+
+    Item {
+      anchors.fill: parent
+      visible: root.helpOpen
+      z: 11
+
+      Rectangle {
+        anchors.fill: parent
+        color: Util.alpha(Color.background, 0.7)
+
+        MouseArea { anchors.fill: parent; onClicked: root.helpOpen = false }
+
+        BorderSurface {
+          id: helpCard
+          width: Math.min(parent.width - Style.space(32), Style.space(420))
+          height: helpCard.contentTopInset + helpCard.contentBottomInset + helpContent.implicitHeight + Style.space(20) + Style.space(34)
+          anchors.centerIn: parent
+          color: Color.popups.background
+          borderSpec: Border.flat(Color.accent, Style.normalBorderWidth)
+          padding: Style.space(18)
+          radius: Style.cornerRadius
+
+          MouseArea { anchors.fill: parent; onClicked: {} }
+
+          Item {
+            anchors.fill: parent
+            anchors.topMargin: helpCard.contentTopInset
+            anchors.rightMargin: helpCard.contentRightInset
+            anchors.bottomMargin: helpCard.contentBottomInset
+            anchors.leftMargin: helpCard.contentLeftInset
+
+            Column {
+              id: helpContent
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              spacing: Style.space(12)
+
+              Repeater {
+                model: root.helpItems
+
+                Column {
+                  width: helpContent.width
+                  spacing: Style.space(2)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: modelData.q
+                    color: root.barForeground
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: modelData.a
+                    color: Qt.darker(root.barForeground, 1.4)
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+              }
+            }
+
+            Button {
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              text: "Close"
+              bordered: true
+              foreground: root.barForeground
+              onClicked: root.helpOpen = false
+            }
+          }
+        }
+      }
     }
   }
 }

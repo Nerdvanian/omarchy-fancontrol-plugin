@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-05
+
+### Added
+
+- A "?" help button in the panel header, replacing the paragraph of usage
+  tips that used to sit at the bottom of the panel. It opens a dismissible
+  overlay with quick FAQ-style questions and answers (adding/removing a
+  curve point, renaming a fan, pinning a manual speed, adding a GPU
+  curve) instead of one long run-on sentence.
+
 ## [1.3.0] - 2026-09-04
 
 ### Added
@@ -110,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the old speed instead of re-evaluating fresh against the newly active
   curve.
 
-[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Nerdvanian/omarchy-fancontrol-plugin/compare/v1.1.0...v1.1.1
