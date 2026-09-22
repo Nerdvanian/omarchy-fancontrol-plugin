@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-22
+
+### Security
+
+- The daemon patch installer now installs `fancontrold.py`,
+  `fancontrol_detect.py`, and `fancontrol_recover_pwm.py` into
+  `/usr/local/lib/omarchy-fancontrol/` (root-owned, mode `0644`) instead
+  of the user-writable `~/.local/share/omarchy-fancontrol/`. The systemd
+  unit executes two of those files as root on every start, crash restart,
+  watchdog recovery, and stop; installed under a home directory, the same
+  unprivileged user who owns that account could overwrite them after
+  installation and have the replacement run as root on the next restart
+  for any reason. The manifest hash check only ever protected the initial
+  copy, not the installed file afterward — that's now enforced by the
+  destination directory's ownership instead. `config.yaml` is unaffected
+  and stays in the user-writable `~/.config/omarchy-fancontrol/`.
+  `fancontrol-daemon-install`/`-uninstall --restore`/`--full` handle the
+  migration automatically; no manual steps needed on an existing install.
+
 ## [1.4.0] - 2026-09-05
 
 ### Added

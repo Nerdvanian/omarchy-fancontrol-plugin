@@ -2,9 +2,11 @@
 """Installs this plugin's patched omarchy-fancontrol daemon files and
 systemd unit.
 
-Replaces ~/.local/share/omarchy-fancontrol/{fancontrold.py,fancontrol_detect.py,
-fancontrol_recover_pwm.py} and /etc/systemd/system/omarchy-fancontrol.service
-with the versions rendered from daemon-patches/ -- verified against
+Installs {fancontrold.py,fancontrol_detect.py,fancontrol_recover_pwm.py}
+into /usr/local/lib/omarchy-fancontrol/ (root-owned, mode 0644 -- not
+writable by the invoking user, since the systemd unit below executes
+these as root) and /etc/systemd/system/omarchy-fancontrol.service, with
+the versions rendered from daemon-patches/ -- verified against
 daemon-patches/manifest.json before anything is touched -- then restarts
 omarchy-fancontrol.service and confirms it comes back up before declaring
 success. If the service doesn't come back healthy, everything is restored
@@ -39,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _daemon_common import (
     CONFIG_PATH,
     DAEMON_DIR,
+    DAEMON_LIB_DIR,
     PATCH_DIR,
     PATCHED_FILES,
     SERVICE,
@@ -47,6 +50,7 @@ from _daemon_common import (
     UNIT_TEMPLATE_NAME,
     VERIFY_TIMEOUT_S,
     backup_current,
+    ensure_lib_dir,
     restore_from,
     restore_unit_from,
     run_sudo,
@@ -88,15 +92,17 @@ def load_manifest():
 
 
 def render_unit():
-    """Fill in the machine-specific bits (this user's daemon dir and
-    config path) of the reviewed unit template. Everything else in the
-    unit -- Type=notify, WatchdogSec, ExecStopPost, Restart policy -- comes
-    verbatim from the hash-checked template."""
+    """Fill in the machine-specific bits (the root-owned daemon lib dir
+    and this user's config path) of the reviewed unit template. Everything
+    else in the unit -- Type=notify, WatchdogSec, ExecStopPost, Restart
+    policy -- comes verbatim from the hash-checked template."""
     manifest = load_manifest()
     template_path = os.path.join(PATCH_DIR, manifest["unit_template"]["name"])
     with open(template_path) as f:
         text = f.read()
-    return text.replace("{{DAEMON_DIR}}", DAEMON_DIR).replace("{{CONFIG_PATH}}", CONFIG_PATH)
+    return text.replace("{{DAEMON_LIB_DIR}}", DAEMON_LIB_DIR).replace(
+        "{{CONFIG_PATH}}", CONFIG_PATH
+    )
 
 
 def apply_unit():
@@ -112,22 +118,16 @@ def apply_unit():
 
 
 def stage_and_apply():
-    """Copy the new files in as *.new, verify each copy against the
-    manifest-checked source, then atomically rename over the live targets
-    so there's never a moment where a target file is half-written."""
+    """Install each manifest-verified file from the plugin checkout
+    straight into DAEMON_LIB_DIR: root-owned, mode 0644, staged as *.new
+    and atomically renamed over the live target -- all via sudo, since an
+    unprivileged user must never be able to write what the systemd unit
+    executes as root. load_manifest() already checked every source file's
+    hash before this is called."""
+    ensure_lib_dir()
     for name in PATCHED_FILES:
         src = os.path.join(PATCH_DIR, name)
-        staged = os.path.join(DAEMON_DIR, name + ".new")
-        import shutil
-
-        shutil.copy2(src, staged)
-        if sha256_file(staged) != sha256_file(src):
-            raise SystemExit(f"staged copy of {name} does not match source -- aborting")
-
-    for name in PATCHED_FILES:
-        staged = os.path.join(DAEMON_DIR, name + ".new")
-        target = os.path.join(DAEMON_DIR, name)
-        os.replace(staged, target)  # same filesystem -> atomic swap
+        sudo_install_file(src, os.path.join(DAEMON_LIB_DIR, name))
 
 
 def write_state(manifest, ok):
@@ -199,10 +199,9 @@ def main():
     except SystemExit as e:
         raise SystemExit(
             f"install failed and the pre-install files ARE restored on disk "
-            f"at {DAEMON_DIR} (and the unit at {UNIT_PATH}), but restarting "
-            f"{SERVICE} to load them failed too ({e}). Run "
-            f"`sudo systemctl restart {SERVICE}` yourself to finish the "
-            f"rollback. Backup also kept at {backup_dir}."
+            f"(and the unit at {UNIT_PATH}), but restarting {SERVICE} to load "
+            f"them failed too ({e}). Run `sudo systemctl restart {SERVICE}` "
+            f"yourself to finish the rollback. Backup also kept at {backup_dir}."
         )
 
     if wait_for_healthy(since):

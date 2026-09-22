@@ -82,3 +82,24 @@ your current files either way, so they aren't lost). An Omarchy update
 that touches these files could overwrite this patch; if `sudo pacman -Syu`
 (or equivalent) updates Omarchy, re-run the installer if the fan-control
 features stop working.
+
+### Where the installed files live
+
+The three patched `.py` files land in `/usr/local/lib/omarchy-fancontrol/`
+— root-owned, mode `0644`, not writable by the invoking user — because
+the systemd unit executes `fancontrold.py` and `fancontrol_recover_pwm.py`
+as root on every start, restart-on-failure, watchdog recovery, and stop.
+Installing root-executed code under a home directory (as the stock
+Omarchy daemon otherwise would) would let the same unprivileged user who
+owns that account overwrite it after installation, escalating to root the
+next time the service restarts for any reason. The manifest-hash check in
+`fancontrol-daemon-install` only verifies the files at install time; it's
+the destination directory's ownership and permissions that keep the
+*installed* copy trustworthy afterward — hence `/usr/local/lib`, not
+`~/.local/share`.
+
+`config.yaml` (writable, hand-editable, driven by curve edits from the
+panel) deliberately stays in `~/.config/omarchy-fancontrol/`, separate
+from the executable code — the daemon validates and clamps everything it
+reads from there (see above) precisely because that path is meant to be
+user-writable.

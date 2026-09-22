@@ -63,8 +63,8 @@ def do_restore(assume_yes):
         )
 
     if not confirm(
-        f"Restore {', '.join(PATCHED_FILES)} in {DAEMON_DIR} to their "
-        f"pre-plugin state and restart {SERVICE}?",
+        f"Restore {', '.join(PATCHED_FILES)} to their pre-plugin state "
+        f"and restart {SERVICE}?",
         assume_yes,
     ):
         print("aborted")
@@ -79,8 +79,8 @@ def do_restore(assume_yes):
         run_sudo(["systemctl", "restart", SERVICE], f"restarting {SERVICE}")
     except SystemExit as e:
         raise SystemExit(
-            f"the pre-plugin files ARE restored on disk at {DAEMON_DIR}, but "
-            f"restarting {SERVICE} to load them failed ({e}). Run "
+            f"the pre-plugin files ARE restored on disk, but restarting "
+            f"{SERVICE} to load them failed ({e}). Run "
             f"`sudo systemctl restart {SERVICE}` yourself to finish."
         )
     if wait_for_healthy(since):
